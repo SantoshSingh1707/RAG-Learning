@@ -1,0 +1,7 @@
+langchain
+langchain-core
+langchain-community
+pypdf
+pymupdf
+ipykernel
+tqdm
