@@ -1,3 +1,5 @@
 .env
-.venv/
-data/
+data/vector_store/
+*.sqlite3
+__pycache__/
+.ipynb_checkpoints/
