@@ -1,22 +1,3 @@
-langchain>=1.2.10
-langchain-core>=1.2.17
-langchain-community>=0.4.1
-langchain-mistralai>=1.1.1
-langchain-text-splitters>=1.1.1
-streamlit>=1.55.0
-chromadb>=1.5.2
-faiss-cpu>=1.13.2
-pymupdf>=1.27.1
-pypdf>=6.7.5
-sentence-transformers>=5.2.3
-torch>=2.6.0
-torchvision>=0.21.0
-torchaudio>=2.6.0
-python-dotenv>=1.2.2
-pandas>=2.3.3
-tqdm>=4.67.3
-ipykernel>=7.2.0
-easyocr
-opencv-python
-docx2txt
-numpy>=2.4.2
+version https://git-lfs.github.com/spec/v1
+oid sha256:30b1d7c29afa4b6000aa83a7e4e8a1fd376ce73487bd8ea302cc1fefc1373be8
+size 418
