@@ -1,17 +1,18 @@
 import streamlit as st
 from pathlib import Path
 import warnings
-warnings.filterwarnings('ignore')
+import tempfile
+import os
+import uuid
+from dotenv import load_dotenv
 
-# Import RAG components from core
-from core import (
-    process_all_pdf,
-    split_document,
-    EmbeddingManager,
-    VectorStore,
-    RAGRetrieval,
-    rag_enhanced
-)
+warnings.filterwarnings('ignore')
+load_dotenv()
+
+from src.data_loader import process_all_pdf, split_document, process_single_pdf, process_single_txt
+from src.embedding import EmbeddingManager
+from src.vector_store import VectorStore
+from src.search import RAGRetrieval, rag_enhanced
 from langchain_mistralai import ChatMistralAI
 
 # Page configuration
@@ -32,16 +33,6 @@ st.markdown("""
         font-size: 16px;
         padding: 12px 20px;
     }
-    .query-input {
-        font-size: 16px;
-    }
-    .result-card {
-        border-left: 4px solid #0066cc;
-        padding: 16px;
-        margin: 12px 0;
-        border-radius: 4px;
-        background-color: #f8f9fa;
-    }
     .score-badge {
         display: inline-block;
         padding: 4px 12px;
@@ -49,27 +40,15 @@ st.markdown("""
         font-weight: bold;
         font-size: 12px;
     }
-    .score-high {
-        background-color: #d4edda;
-        color: #155724;
-    }
-    .score-medium {
-        background-color: #fff3cd;
-        color: #856404;
-    }
-    .score-low {
-        background-color: #f8d7da;
-        color: #721c24;
-    }
+    .score-high { background-color: #d4edda; color: #155724; }
+    .score-medium { background-color: #fff3cd; color: #856404; }
+    .score-low { background-color: #f8d7da; color: #721c24; }
 </style>
 """, unsafe_allow_html=True)
 
 # Title and description
 st.title("🤖 RAG Question & Answer System")
 st.markdown("Search your documents and get AI-powered answers using semantic search")
-
-# Sidebar configuration
-st.sidebar.title("⚙️ Configuration")
 
 # Load RAG components only once using caching
 @st.cache_resource
@@ -86,133 +65,172 @@ def load_rag_components():
         retriever = RAGRetrieval(vectorstore, embedding_manager)
         llm = ChatMistralAI(model="mistral-small-2506", temperature=0.7)
         
-        return retriever, llm, rag_enhanced
+        return retriever, llm, rag_enhanced, vectorstore, embedding_manager
     except Exception as e:
         st.error(f"Error loading RAG components: {str(e)}")
-        return None, None, None
+        return None, None, None, None, None
 
-# Sidebar parameters
-top_k = st.sidebar.slider(
-    "Number of documents to retrieve",
-    min_value=1,
-    max_value=10,
-    value=5,
-    help="How many relevant documents to search in"
-)
-
-score_threshold = st.sidebar.slider(
-    "Similarity threshold",
-    min_value=0.0,
-    max_value=1.0,
-    value=0.35,
-    step=0.05,
-    help="Minimum similarity score to include results"
-)
-
-return_context = st.sidebar.checkbox(
-    "Show source context",
-    value=True,
-    help="Display the original document snippets"
-)
-
-# Main search interface
-col1, col2 = st.columns([4, 1])
-with col1:
-    query = st.text_input(
-        "Ask a question about your documents:",
-        placeholder="e.g., What is attention all you need? What is machine learning?",
-        key="search_query"
-    )
-with col2:
-    search_button = st.button("🔍 Search", use_container_width=True)
-
-# Load RAG components
-retriever, llm, rag_enhanced_func = load_rag_components()
+retriever, llm, rag_enhanced_func, vectorstore, embedding_manager = load_rag_components()
 
 if retriever is None or llm is None:
     st.error("Failed to initialize RAG system. Please check your setup.")
-else:
-    # Handle search
-    if search_button or (query and 'last_query' in st.session_state and st.session_state.last_query != query):
-        if not query.strip():
-            st.warning("Please enter a question to search.")
-        else:
-            st.session_state.last_query = query
-            
-            with st.spinner("🔍 Searching documents and generating answer..."):
-                try:
-                    # Get RAG response
-                    result = rag_enhanced_func(
-                        query=query,
-                        retriever=retriever,
-                        llm=llm,
-                        top_k=top_k,
-                        min_score=score_threshold,
-                        return_context=return_context
-                    )
-                    
-                    # Display answer
-                    st.markdown("---")
-                    st.subheader("💡 Answer")
-                    st.markdown(result['answer'])
-                    
-                    # Display confidence
-                    confidence = result.get('confidence', 0)
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Confidence", f"{confidence:.1%}")
-                    
-                    # Display sources
-                    sources = result.get('sources', [])
-                    if sources:
-                        st.subheader(f"📚 Retrieved Documents ({len(sources)})")
-                        
-                        for idx, source in enumerate(sources, 1):
-                            with st.container():
-                                # Create result card
-                                st.markdown(f"### Result {idx}", help=f"Relevance: {source.get('similarity_score', 0):.2%}")
-                                
-                                col1, col2 = st.columns([3, 1])
-                                with col1:
-                                    # File source
-                                    file_source = source.get('source_file', 'Unknown')
-                                    st.caption(f"📄 Source: {file_source}")
-                                
-                                with col2:
-                                    # Similarity score badge
-                                    score = source.get('similarity_score', 0)
-                                    if score >= 0.7:
-                                        badge_class = "score-high"
-                                    elif score >= 0.5:
-                                        badge_class = "score-medium"
-                                    else:
-                                        badge_class = "score-low"
-                                    
-                                    st.markdown(
-                                        f'<span class="score-badge {badge_class}">{score:.1%}</span>',
-                                        unsafe_allow_html=True
-                                    )
-                                
-                                # Document content
-                                st.markdown(f"**Content Preview:**")
-                                content = source.get('content', 'No content available')
-                                # Truncate long content
-                                if len(content) > 500:
-                                    content = content[:500] + "..."
-                                st.text(content)
-                                
-                                st.divider()
-                    else:
-                        st.info("No relevant documents found for your query. Try adjusting the similarity threshold or asking a different question.")
-                
-                except Exception as e:
-                    st.error(f"Error processing query: {str(e)}")
-                    st.info("Make sure your vector store is populated with documents.")
+    st.stop()
 
-# Footer
-st.markdown("---")
-st.markdown("""
+# --- Sidebar configuration ---
+st.sidebar.title("⚙️ Configuration")
+
+top_k = st.sidebar.slider("Number of documents to retrieve", 1, 10, 5)
+score_threshold = st.sidebar.slider("Similarity threshold", 0.0, 1.0, 0.35, 0.05)
+return_context = st.sidebar.checkbox("Show source context", value=True)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("📄 Upload Document")
+uploaded_file = st.sidebar.file_uploader("Upload a PDF or TXT to Vector Store", type=["pdf", "txt"])
+if uploaded_file:
+    if st.sidebar.button("Process & Add Document", use_container_width=True):
+        with st.sidebar.status("Processing document..."):
+            temp_dir = tempfile.mkdtemp()
+            temp_path = os.path.join(temp_dir, uploaded_file.name)
+            with open(temp_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            
+            st.write("Extracting text...")
+            if uploaded_file.name.lower().endswith('.pdf'):
+                docs = process_single_pdf(temp_path)
+            elif uploaded_file.name.lower().endswith('.txt'):
+                docs = process_single_txt(temp_path)
+            else:
+                docs = []
+            
+            if docs:
+                st.write("Splitting into chunks...")
+                chunks = split_document(docs)
+                if chunks:
+                    st.write("Generating embeddings...")
+                    texts = [c.page_content for c in chunks]
+                    embeddings = embedding_manager.generate_embeddings(texts)
+                    st.write("Adding to database...")
+                    vectorstore.add_documents(chunks, embeddings)
+                    st.success(f"Successfully added {uploaded_file.name}!")
+                else:
+                    st.error("Document processed, but no extractable text chunks were found. This might be a scanned or image-based PDF.")
+            else:
+                st.error("Failed to extract text from document.")
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔍 Filters & Management")
+available_sources = vectorstore.get_available_sources()
+selected_sources = st.sidebar.multiselect(
+    "Filter by Source File",
+    options=available_sources,
+    default=[],
+    help="Select specific documents to search in. Leave empty to search all."
+)
+
+if available_sources:
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🗑️ Remove Document")
+    doc_to_remove = st.sidebar.selectbox("Select document to remove", [""] + available_sources)
+    if doc_to_remove and st.sidebar.button("Delete Document", type="primary", use_container_width=True):
+        with st.sidebar.status(f"Removing {doc_to_remove}..."):
+            success = vectorstore.remove_source(doc_to_remove)
+            if success:
+                st.success(f"Successfully removed {doc_to_remove} from the database. Please restart or refresh the page to update the list if needed.")
+                st.rerun()
+            else:
+                st.error("Failed to remove the document.")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("""
 <div style="text-align: center; color: gray; font-size: 12px;">
     RAG Q&A System | Powered by Mistral AI, ChromaDB & Streamlit
 </div>
 """, unsafe_allow_html=True)
+
+
+# --- Main Chat Interface ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Display chat history
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+        if msg["role"] == "assistant" and "sources" in msg and msg["sources"]:
+            with st.expander(f"📚 View {len(msg['sources'])} Sources"):
+                for source in msg['sources']:
+                    score = source.get('similarity_score', 0)
+                    badge_class = "score-high" if score >= 0.7 else "score-medium" if score >= 0.5 else "score-low"
+                    st.markdown(
+                        f"**{source.get('source_file')}** (Page {source.get('page')}) <span class='score-badge {badge_class}'>{score:.1%}</span>", 
+                        unsafe_allow_html=True
+                    )
+                    content = source.get('content', '')
+                    st.caption(content[:300] + "..." if len(content) > 300 else content)
+            
+            dl_text = msg["content"] + "\n\nSources:\n" + "\n".join([f"- {s.get('source_file')} (Page {s.get('page')})" for s in msg["sources"]])
+            st.download_button(
+                "📥 Download Answer",
+                data=dl_text,
+                file_name=f"rag_answer_{msg['id']}.txt",
+                mime="text/plain",
+                key=f"dl_{msg['id']}"
+            )
+
+# Input
+if query := st.chat_input("Ask a question about your documents..."):
+    # Add passing user message
+    st.session_state.messages.append({"role": "user", "content": query, "id": str(uuid.uuid4())})
+    with st.chat_message("user"):
+        st.markdown(query)
+        
+    with st.chat_message("assistant"):
+        with st.spinner("Searching documents and generating answer..."):
+            try:
+                result = rag_enhanced_func(
+                    query=query,
+                    retriever=retriever,
+                    llm=llm,
+                    top_k=top_k,
+                    min_score=score_threshold,
+                    return_context=return_context,
+                    source_filter=selected_sources if selected_sources else None
+                )
+                
+                answer = result['answer']
+                sources = result.get('sources', [])
+                
+                st.markdown(answer)
+                if sources:
+                    with st.expander(f"📚 View {len(sources)} Sources"):
+                        for source in sources:
+                            score = source.get('similarity_score', 0)
+                            badge_class = "score-high" if score >= 0.7 else "score-medium" if score >= 0.5 else "score-low"
+                            st.markdown(
+                                f"**{source.get('source_file')}** (Page {source.get('page')}) <span class='score-badge {badge_class}'>{score:.1%}</span>", 
+                                unsafe_allow_html=True
+                            )
+                            content = source.get('content', '')
+                            st.caption(content[:300] + "..." if len(content) > 300 else content)
+                    
+                    msg_id = str(uuid.uuid4())
+                    dl_text = answer + "\n\nSources:\n" + "\n".join([f"- {s.get('source_file')} (Page {s.get('page')})" for s in sources])
+                    st.download_button(
+                        "📥 Download Answer",
+                        data=dl_text,
+                        file_name=f"rag_answer_{msg_id}.txt",
+                        mime="text/plain",
+                        key=f"dl_{msg_id}"
+                    )
+                else:
+                    msg_id = str(uuid.uuid4())
+                    st.info("No relevant documents found for your query.")
+                
+                st.session_state.messages.append({
+                    "role": "assistant", 
+                    "content": answer, 
+                    "sources": sources, 
+                    "id": msg_id
+                })
+            except Exception as e:
+                st.error(f"Error processing query: {str(e)}")

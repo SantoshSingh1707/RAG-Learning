@@ -1,269 +1,134 @@
-# RAG Pipeline - Retrieval Augmented Generation
+# AI-Powered Conversational RAG System
 
-A Python-based **Retrieval Augmented Generation (RAG)** pipeline that processes PDF documents, creates semantic embeddings, and enables intelligent document retrieval using similarity search.
+A sophisticated **Retrieval Augmented Generation (RAG)** system that combines semantic search with LLM intelligence to provide precise answers from your documents. 
+
+Built with **Streamlit**, **LangChain**, **ChromaDB**, and **Mistral AI**, this application supports PDF/TXT ingestion, OCR for image-based documents, and interactive chat with source citations.
 
 ## 📋 Overview
 
-This project demonstrates a complete RAG workflow:
-- **Data Ingestion**: Load PDF and text documents from specified directories
-- **Text Processing**: Split documents into manageable chunks with configurable overlap
-- **Embedding Generation**: Convert text chunks into semantic embeddings using SentenceTransformer
-- **Vector Storage**: Store embeddings in a persistent ChromaDB vector database
-- **Intelligent Retrieval**: Retrieve relevant documents based on semantic similarity to user queries
+This project provides a professional-grade RAG workflow:
+- **Dynamic Ingestion**: Upload documents via a web interface or bulk process from local directories.
+- **OCR Support**: Automatically detects and extracts text from image-based or scanned PDFs using EasyOCR.
+- **Intelligent Chunking**: Sophisticated text splitting with recursive strategies to maintain semantic context.
+- **Vector Storage**: Persistent storage of embeddings in ChromaDB for fast retrieval.
+- **Conversational AI**: Integrates Mistral AI (`mistral-small-2506`) for natural, context-aware responses.
+- **Interactive UI**: A full-featured Streamlit dashboard for querying, document management, and source exploration.
 
-## 🚀 Features
+## 🚀 Key Features
 
-✅ Multi-format document loading (PDF, TXT)  
-✅ Intelligent text chunking with recursive splitting  
-✅ Semantic embeddings using `sentence-transformers`  
-✅ Persistent vector database with ChromaDB  
-✅ Similarity-based document retrieval  
-✅ Metadata preservation throughout the pipeline  
-✅ Configurable chunk size, overlap, and retrieval thresholds  
+✅ **Interactive Chat Interface**: Conversational UI with persistent chat memory.  
+✅ **Multi-format Support**: Process PDFs, text files, and scanned documents.  
+✅ **OCR Fallback**: Automated extraction for non-searchable PDFs.  
+✅ **Source Citations**: Every answer includes clickable source links with similarity scores.  
+✅ **Document Management**: Upload new files or delete existing ones directly from the UI.  
+✅ **Response Export**: Download generated answers and metadata as text files.  
+✅ **GPU Acceleration**: CUDA support for high-speed embedding generation.  
+✅ **Source Filtering**: Narrow your search to specific documents in your database.
 
-## 📦 Dependencies
+## 📦 Core Stack
 
-- `langchain` - Document processing and utilities
-- `langchain-core` - Core LangChain components
-- `langchain-community` - Community integrations (PDF loaders, etc.)
-- `langchain-text-splitters` - Text splitting utilities
-- `sentence-transformers` - Semantic embeddings (all-MiniLM-L6-v2)
-- `chromadb` - Vector database
-- `pypdf` & `pymupdf` - PDF document processing
-- `scikit-learn` - ML utilities
-- `numpy` - Numerical computing
+- **Frontend**: `Streamlit`
+- **Orchestration**: `LangChain` & `LangChain-Community`
+- **LLM**: `Mistral AI` (via `langchain-mistralai`)
+- **Embeddings**: `Sentence-Transformers` (`multi-qa-MiniLM-L6-cos-v1`)
+- **Database**: `ChromaDB` (Vector Store)
+- **OCR**: `EasyOCR` & `PyMuPDF` (Fitz)
+- **Environment**: `Python 3.11+`, `uv` for package management
 
 ## 📥 Installation
 
-1. **Clone or download the project**
+1. **Clone the repository**
    ```bash
+   git clone https://github.com/SantoshSingh1707/RAG-Learning.git
    cd RAG-Learning
    ```
 
-2. **Create a virtual environment**
-   ```bash
-   python -m venv .venv
-   .venv\Scripts\activate  # On Windows
-   source .venv/bin/activate  # On macOS/Linux
+2. **Setup Environment Variables**
+   Create a `.env` file in the root directory:
+   ```env
+   MISTRAL_API_KEY=your_api_key_here
    ```
 
-3. **Install dependencies**
+3. **Install Dependencies**
+   Using `pip`:
    ```bash
    pip install -r requirements.txt
    ```
+   *Note: For GPU support, ensure CUDA-compatible torch is installed (see `pyproject.toml` for details).*
 
 ## 📂 Project Structure
 
 ```
 RAG-Learning/
-├── main.py                    # Main entry point
-├── requirements.txt           # Project dependencies
-├── pyproject.toml            # Project configuration
-├── README.md                 # This file
-├── .env                      # Environment configuration
+├── app.py                  # Main Streamlit application
+├── ingest_data.py          # CLI tool for bulk document ingestion
+├── requirements.txt        # Production dependencies
+├── pyproject.toml         # Project configuration & UV sync
+├── .env                   # API keys and environment configs
+├── src/                    # Core source code
+│   ├── data_loader.py      # PDF/TXT/OCR processing logic
+│   ├── embedding.py        # Embedding generation manager
+│   ├── vector_store.py     # ChromaDB interface
+│   └── search.py           # RAG retrieval and LLM integration
 ├── data/
-│   ├── pdf/                  # PDF documents to process
-│   ├── textfiles/            # Text documents
-│   │   ├── python_intro.txt
-│   │   └── machine_learning.txt
-│   └── vector_store/         # ChromaDB storage
-│       └── chroma.sqlite3
-└── notebook/
-    ├── document.ipynb        # Data ingestion demo
-    └── pdf_loader.ipynb      # Complete RAG pipeline
+│   ├── pdf/               # Local PDF storage
+│   ├── textfiles/         # Local text file storage
+│   └── vector_store/      # ChromaDB persistent database
+└── notebook/               # Experimental Jupyter notebooks
 ```
 
 ## 🔧 Usage
 
-### Option 1: Using Jupyter Notebooks
-
-**Data Ingestion Demo:**
+### 💻 Web Application (Recommended)
+Launch the interactive dashboard to upload, manage, and chat with your documents:
 ```bash
-jupyter notebook notebook/document.ipynb
+streamlit run app.py
 ```
 
-**Complete RAG Pipeline:**
+### 🛠️ CLI Bulk Ingestion
+To populate your vector database with existing files in the `data/` folder:
 ```bash
-jupyter notebook notebook/pdf_loader.ipynb
+python ingest_data.py
 ```
 
-### Option 2: Run from Command Line
+## 🏗️ Technical Implementation
 
-```bash
-python main.py
-```
+### 1. Document Processing & OCR
+The system uses a hierarchical approach:
+1. Attempt text extraction via `PyPDFLoader`.
+2. If no text is found (scanned document), fall back to `EasyOCR` for page-by-page vision processing.
+3. Metadata like `source_file`, `page`, and `file_type` are preserved for citation.
 
-## 🏗️ Pipeline Components
-
-### 1. Document Loading
-```python
-from langchain_community.document_loaders import PyMuPDFLoader, DirectoryLoader
-
-# Load all PDFs from directory
-loader = DirectoryLoader("data/pdf", 
-                        glob="**/*.pdf",
-                        loader_cls=PyMuPDFLoader)
-documents = loader.load()
-```
-
-### 2. Text Splitting
-```python
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-splitter = RecursiveCharacterTextSplitter(
-    chunk_size=1000,
-    chunk_overlap=200,
-    separators=["\n\n", "\n", " ", ""]
-)
-chunks = splitter.split_documents(documents)
-```
-
-### 3. Embedding Generation
-```python
-from sentence_transformers import SentenceTransformer
-
-model = SentenceTransformer("all-MiniLM-L6-v2")
-embeddings = model.encode(texts)
-```
-
-### 4. Vector Storage
-```python
-import chromadb
-
-client = chromadb.PersistentClient(path="data/vector_store")
-collection = client.get_or_create_collection("pdf_documents")
-collection.add(ids=ids, embeddings=embeddings, documents=texts)
-```
-
-### 5. Document Retrieval
-```python
-# Query similar documents
-results = collection.query(
-    query_embeddings=[query_embedding],
-    n_results=5
-)
-
-# Results include: ids, documents, metadatas, distances
-```
-
-## 📊 Key Classes
-
-### `EmbeddingManager`
-Handles embedding generation using SentenceTransformer models.
-- `generate_embeddings(texts)` - Convert text to embeddings
-
-### `VectorStore`
-Manages ChromaDB vector database operations.
-- `initialize_store()` - Setup persistent storage
-- `add_documents(documents, embeddings)` - Store document embeddings
-
-### `RAGRetrival`
-Performs semantic similarity search and document retrieval.
-- `retrive(query, top_k=5, score_threshold=0.3)` - Find relevant documents
-
-## 🔍 Retrieval Details
-
-The retrieval system uses **cosine distance** with similarity conversion:
-
+### 2. Semantic Retrieval
+Queries are embedded using the `multi-qa-MiniLM-L6-cos-v1` model, optimized for Q&A tasks. Retrieval uses **cosine similarity** conversion:
 ```python
 similarity_score = 1 / (1 + distance)
 ```
 
-This formula converts distances to a 0-1 similarity range:
-- Default threshold: **0.3** (adjustable)
-- Default top_k: **5** results
-- Returns: Document content, metadata, similarity score, and rank
-
-## 🎯 Example Query
-
-```python
-# Initialize retriever
-rag_retriever = RAGRetrival(vectorstore, embedding_manager)
-
-# Retrieve relevant documents
-results = rag_retriever.retrive(
-    query="What is machine learning?",
-    top_k=5,
-    score_threshold=0.3
-)
-
-# Results contain:
-# - id: Document identifier
-# - content: Document text
-# - metadata: Source info, page numbers, etc.
-# - similarity_score: Relevance score (0-1)
-# - distance: Raw distance metric
-# - rank: Retrieval rank
-```
+### 3. LLM Enhancement
+The `rag_enhanced` function combines retrieved context with user queries, sending a structured prompt to Mistral AI. The system maintains conversation history for coherent multi-turn dialogues.
 
 ## 📝 Configuration
 
-Key parameters you can adjust:
+Key parameters adjustable via the UI sidebar:
 
-| Parameter | Location | Default | Description |
-|-----------|----------|---------|-------------|
-| Embedding Model | `EmbeddingManager.__init__()` | all-MiniLM-L6-v2 | SentenceTransformer model |
-| Chunk Size | `split_document()` | 1000 | Characters per chunk |
-| Chunk Overlap | `split_document()` | 200 | Overlapping characters |
-| Similarity Threshold | `RAGRetrival.retrive()` | 0.3 | Minimum relevance score |
-| Top-K Results | `RAGRetrival.retrive()` | 5 | Number of results to return |
-| Persist Directory | `VectorStore.__init__()` | ../data/vector_store | Vector DB location |
-
-## 📚 Data Format
-
-### Input Documents
-- **PDFs**: `data/pdf/*.pdf`
-- **Text Files**: `data/textfiles/*.txt`
-
-### Document Metadata
-Each document preserves:
-- `source`: Original file name
-- `source_file`: PDF file name
-- `file_type`: Document type (pdf/txt)
-- `page`: Page number (for PDFs)
-- `doc_index`: Chunk index
-- `context_length`: Character count
-
-## 🐛 Troubleshooting
-
-### Issue: Retrieval returns 0 documents
-- **Cause**: Similarity threshold too high
-- **Solution**: Lower `score_threshold` parameter (try 0.2-0.4)
-
-### Issue: Slow embedding generation
-- **Cause**: Large number of documents or chunks
-- **Solution**: Adjust `chunk_size` parameter or use GPU (see sentence-transformers docs)
-
-### Issue: OutOfMemory errors
-- **Cause**: Processing too many large PDFs
-- **Solution**: Process PDFs in batches or increase chunk size
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| Top-K Documents | 5 | Number of relevant chunks retrieved |
+| Similarity Threshold | 0.35 | Minimum relevance score (0-1) |
+| Model | mistral-small | LLM used for answer generation |
+| Chunk Size | 1000 | Characters per segment during ingestion |
 
 ## 🚀 Future Enhancements
 
-- [ ] Multi-GPU support for faster embeddings
-- [ ] Support for other embedding models (OpenAI, Cohere)
-- [ ] Integration with LLMs for answer generation
-- [ ] Web UI for document querying
-- [ ] Batch processing optimization
-- [ ] Document metadata filtering
+- [ ] Support for Excel (`.xlsx`) and Word (`.docx`) documents.
+- [ ] Integration with more LLM providers (OpenAI, Anthropic).
+- [ ] Advanced "Re-ranking" (Cross-Encoders) for higher precision.
+- [ ] User authentication and private workspaces.
 
-## 📄 License
+## 📄 License & Credits
 
-This project is open source and available for educational purposes.
+Created by **Santosh**  
+Updated: March 9, 2026
 
-## 👤 Author
-
-**Santosh**  
-Created: March 7, 2026
-
-## 🤝 Contributing
-
-Contributions, issues, and feature requests are welcome!
-
-## 📞 Support
-
-For issues or questions, please check the Jupyter notebooks in the `notebook/` directory for detailed examples and usage patterns.
-
----
-
-**Happy RAG-ing! 🚀**
+*Educational project demonstrating modern RAG architectures.*

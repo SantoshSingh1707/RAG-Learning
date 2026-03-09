@@ -3,7 +3,7 @@ name = "rag-learning"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "chromadb>=1.5.2",
     "faiss-cpu>=1.13.2",
@@ -19,4 +19,17 @@ dependencies = [
     "sentence-transformers>=5.2.3",
     "streamlit>=1.55.0",
     "tqdm>=4.67.3",
+    "torch>=2.6.0",
+    "torchvision>=0.21.0",
+    "torchaudio>=2.6.0",
 ]
+
+[[tool.uv.index]]
+name = "pytorch-cuda"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cuda" }
+torchvision = { index = "pytorch-cuda" }
+torchaudio = { index = "pytorch-cuda" }
