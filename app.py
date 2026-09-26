@@ -884,6 +884,7 @@ def _render_sidebar(
             1,
             10,
             DEFAULT_TOP_K,
+            key="rag_top_k",
             help="How many evidence chunks to consider before the answer is generated.",
         )
         score_threshold = st.slider(
@@ -892,11 +893,13 @@ def _render_sidebar(
             1.0,
             DEFAULT_MIN_SCORE,
             0.05,
+            key="rag_score_threshold",
             help="Hide matches below this cosine similarity score.",
         )
         return_context = st.checkbox(
             "Show retrieved context",
             value=True,
+            key="rag_return_context",
             help="Display the untrusted source text used for the answer.",
         )
 
@@ -939,6 +942,7 @@ def _render_sidebar(
             "Filter by source",
             options=list(source_labels),
             default=[],
+            key="rag_source_filter",
             format_func=lambda source_id: source_labels[source_id],
             help="Leave empty to search the full index. Select one or more sources to narrow the search.",
         )
@@ -948,6 +952,7 @@ def _render_sidebar(
                 doc_to_remove = st.selectbox(
                     "Select a source",
                     ["", *source_labels],
+                    key="rag_source_to_remove",
                     format_func=lambda source_id: source_labels.get(source_id, source_id),
                 )
                 if doc_to_remove and st.button(
@@ -1157,7 +1162,7 @@ def main() -> None:
         """
     )
 
-    chat_query = st.chat_input("Ask a question about your documents…")
+    chat_query = st.chat_input("Ask a question about your documents…", key="rag_chat_input")
     pending_query = st.session_state.get("pending_query")
     has_submitted_query = bool(chat_query or pending_query)
 
