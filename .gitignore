@@ -2,6 +2,8 @@
 data/vector_store/
 *.sqlite3
 __pycache__/
+*.egg-info/
+.venv/
 .ipynb_checkpoints/
 notebook/document.ipynb
 data/textfiles/EPS_FILES_20K_NOV2025.txt
