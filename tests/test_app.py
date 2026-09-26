@@ -22,6 +22,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
@@ -34,7 +35,6 @@ import src.vector_store as vector_store_module
 
 APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
 EMBEDDING_DIMENSIONS = 4
-CHAT_PROMPT = "Ask a question about your documents…"
 
 DEFAULT_SOURCES = [
     {"source_id": "bulk:pdf:alpha.pdf", "file_type": "pdf", "source_file": "alpha.pdf"},
@@ -102,7 +102,9 @@ class FakeVectorStore:
         self.deleted.extend(source_ids)
 
     def add_documents(self, documents: list[Any], embeddings: Any) -> int:
-        self.added.append((len(documents), len(embeddings)))
+        # Record the array shape, not len(). len() of a 2-D array is its row
+        # count, which would let a wrong embedding width pass unnoticed.
+        self.added.append(np.asarray(embeddings).shape)
         return len(documents)
 
 
@@ -334,7 +336,7 @@ def test_no_shadowing_warning_when_nothing_is_shadowed(harness: Harness) -> None
 
 
 def ask(harness: Harness, question: str) -> Harness:
-    harness.at.chat_input[0].set_value(question)
+    harness.at.chat_input(key="rag_chat_input").set_value(question)
     harness.at.run()
     return harness
 
@@ -362,8 +364,8 @@ def test_retrieval_settings_are_forwarded_to_the_search_call(
 
 
 def test_slider_changes_reach_the_search_call(harness: Harness) -> None:
-    harness.at.sidebar.slider[0].set_value(9)
-    harness.at.sidebar.slider[1].set_value(0.75)
+    harness.at.sidebar.slider(key="rag_top_k").set_value(9)
+    harness.at.sidebar.slider(key="rag_score_threshold").set_value(0.75)
     harness.at.run()
     ask(harness, "How many heads?")
     call = harness.queries[0]
@@ -372,7 +374,7 @@ def test_slider_changes_reach_the_search_call(harness: Harness) -> None:
 
 
 def test_source_filter_narrows_the_search(harness: Harness) -> None:
-    harness.at.sidebar.multiselect[0].set_value(["bulk:pdf:alpha.pdf"])
+    harness.at.sidebar.multiselect(key="rag_source_filter").set_value(["bulk:pdf:alpha.pdf"])
     harness.at.run()
     ask(harness, "Anything about alpha?")
     assert harness.queries[0]["source_filter"] == ["bulk:pdf:alpha.pdf"]
@@ -411,7 +413,7 @@ def test_answer_is_rendered_with_its_evidence(harness: Harness) -> None:
 
 
 def test_context_is_hidden_when_the_toggle_is_off(harness: Harness) -> None:
-    harness.at.sidebar.checkbox[0].set_value(False)
+    harness.at.sidebar.checkbox(key="rag_return_context").set_value(False)
     harness.at.run()
     ask(harness, "What is multi-head attention?")
     assert harness.queries[0]["return_context"] is False
@@ -488,7 +490,7 @@ def test_auth_error_under_a_local_provider_points_at_the_server(
 
 
 def test_removing_a_source_is_confirmed_before_it_happens(harness: Harness) -> None:
-    harness.at.sidebar.selectbox[0].set_value("bulk:pdf:alpha.pdf")
+    harness.at.sidebar.selectbox(key="rag_source_to_remove").set_value("bulk:pdf:alpha.pdf")
     harness.at.run()
     [b for b in harness.at.sidebar.button if b.label == "Remove selected source"][0].click()
     harness.at.run()
@@ -497,7 +499,7 @@ def test_removing_a_source_is_confirmed_before_it_happens(harness: Harness) -> N
 
 
 def test_confirming_removal_deletes_the_source(harness: Harness) -> None:
-    harness.at.sidebar.selectbox[0].set_value("bulk:pdf:alpha.pdf")
+    harness.at.sidebar.selectbox(key="rag_source_to_remove").set_value("bulk:pdf:alpha.pdf")
     harness.at.run()
     [b for b in harness.at.sidebar.button if b.label == "Remove selected source"][0].click()
     harness.at.run()
@@ -507,7 +509,7 @@ def test_confirming_removal_deletes_the_source(harness: Harness) -> None:
 
 
 def test_cancelling_removal_leaves_the_index_untouched(harness: Harness) -> None:
-    harness.at.sidebar.selectbox[0].set_value("bulk:pdf:alpha.pdf")
+    harness.at.sidebar.selectbox(key="rag_source_to_remove").set_value("bulk:pdf:alpha.pdf")
     harness.at.run()
     [b for b in harness.at.sidebar.button if b.label == "Remove selected source"][0].click()
     harness.at.run()
@@ -529,26 +531,28 @@ def test_process_upload_replaces_a_source_with_fresh_chunks(harness: Harness) ->
     assert added > 0
     # Staging must delete the previous source before writing its replacement.
     assert harness.vectorstore.deleted == ["upload:txt:notes.txt"]
-    assert sum(count for count, _ in harness.vectorstore.added) == added
-    assert all(
-        vector_count == EMBEDDING_DIMENSIONS for _, vector_count in harness.vectorstore.added
-    )
+    assert sum(shape[0] for shape in harness.vectorstore.added) == added
+    # Every staged array must be rows x EMBEDDING_DIMENSIONS, not just rows.
+    assert all(shape[1] == EMBEDDING_DIMENSIONS for shape in harness.vectorstore.added)
     assert harness.embedding_manager.calls[0]["is_query"] is False
 
 
 def test_process_upload_splits_a_large_document_into_batches(harness: Harness) -> None:
     # Each sentence must differ: repeated text is deduplicated at ingestion, so a
     # repeated payload would collapse to a handful of chunks and never batch.
+    # The payload is sized from EMBEDDING_BATCH_SIZE so this still batches when
+    # that setting is raised, instead of quietly passing on one oversized batch.
     payload = b"".join(
-        f"Unique observation number {index} for batch coverage. ".encode() for index in range(6000)
+        f"Unique observation number {index} for batch coverage. ".encode()
+        for index in range(app_module.EMBEDDING_BATCH_SIZE * 40)
     )
     added = app_module._process_upload(
         FakeUploadedFile("long.txt", payload), harness.embedding_manager, harness.vectorstore
     )
     assert added > app_module.EMBEDDING_BATCH_SIZE
     assert len(harness.vectorstore.added) > 1
-    assert sum(count for count, _ in harness.vectorstore.added) == added
-    assert all(count <= app_module.EMBEDDING_BATCH_SIZE for count, _ in harness.vectorstore.added)
+    assert sum(shape[0] for shape in harness.vectorstore.added) == added
+    assert all(shape[0] <= app_module.EMBEDDING_BATCH_SIZE for shape in harness.vectorstore.added)
 
 
 def test_process_upload_rejects_an_unsupported_extension(harness: Harness) -> None:
