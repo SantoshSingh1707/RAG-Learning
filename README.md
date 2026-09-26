@@ -131,8 +131,26 @@ value in .env. The .env value is being ignored.
 ```
 
 This applies to non-credential settings too. A shadowed `OLLAMA_MODEL` is just
-as confusing as a shadowed API key, so both are surfaced. Clear the variable for
-the current session with:
+as confusing as a shadowed API key, so both are surfaced. The simplest fix is to
+start the app with the bundled launcher, which clears anything shadowing `.env`
+and then prints the configuration that will actually be used:
+
+```powershell
+.\start.ps1
+```
+
+```text
+Checking for environment variables that override .env...
+  cleared Env:OLLAMA_MODEL
+  .env is now authoritative for 1 setting(s).
+
+Effective configuration:
+  provider    ollama
+  model       llama3.1:8b
+```
+
+The names it clears come from `src.config`, so the launcher cannot drift from
+what the application reads. To clear a single variable by hand instead:
 
 ```powershell
 Remove-Item Env:OLLAMA_MODEL
@@ -197,6 +215,16 @@ MISTRAL_API_KEY=your_key_here
 Retrieval and answer generation both require network access in this mode.
 
 ## Running the application
+
+On Windows, prefer the launcher. It clears any environment variable that is
+shadowing `.env` and echoes the effective configuration before the server
+starts, which is the usual reason an edit to `.env` appears to do nothing:
+
+```powershell
+.\start.ps1
+```
+
+Otherwise:
 
 ```bash
 uv run streamlit run app.py

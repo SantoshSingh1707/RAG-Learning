@@ -9,12 +9,10 @@ from __future__ import annotations
 
 import argparse
 import logging
-import tempfile
 from collections.abc import Callable, Sequence
+from functools import partial
 from pathlib import Path
 from typing import Any
-
-import numpy as np
 
 from src.config import (
     CHUNK_OVERLAP,
@@ -27,7 +25,7 @@ from src.config import (
 )
 from src.data_loader import process_all_pdf, process_all_txt, split_document
 from src.embedding import EmbeddingManager
-from src.vector_store import VectorStore, _stable_source_id
+from src.vector_store import VectorStore, _stable_source_id, stage_and_replace
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +69,6 @@ def _embed_and_store(
     rebuild: bool = False,
 ) -> int:
     """Embed to temporary batches before replacing any existing source rows."""
-    if batch_size < 1:
-        raise ValueError("batch_size must be positive")
     if not documents:
         logger.warning("No documents found to process")
         return 0
@@ -86,42 +82,20 @@ def _embed_and_store(
         logger.warning("No chunks generated")
         return 0
 
-    staged_batches: list[tuple[list[Any], Path]] = []
-    with tempfile.TemporaryDirectory(prefix="rag-embedding-staging-") as staging_directory:
-        staging_root = Path(staging_directory)
-        for start in range(0, len(chunks), batch_size):
-            batch = chunks[start : start + batch_size]
-            texts = [chunk.page_content for chunk in batch]
-            logger.info(
-                "Generating embeddings for chunks %d-%d of %d",
-                start + 1,
-                start + len(batch),
-                len(chunks),
-            )
-            embeddings = embedding_manager.generate_embeddings(
-                texts,
-                is_query=False,
-                show_progress_bar=True,
-            )
-            embedding_path = staging_root / f"batch-{start:012d}.npy"
-            np.save(embedding_path, np.asarray(embeddings, dtype=np.float32), allow_pickle=False)
-            staged_batches.append((batch, embedding_path))
+    if rebuild:
+        logger.warning("Resetting collection %s before ingestion", vectorstore.collection_name)
+        replace = vectorstore.reset_collection
+    else:
+        source_ids = sorted({_stable_source_id(chunk.metadata) for chunk in chunks})
+        replace = partial(vectorstore.delete_sources, source_ids)
 
-        # Do not remove the previous index until every replacement embedding has
-        # been generated successfully. A model/network failure therefore leaves
-        # the existing collection usable.
-        if rebuild:
-            logger.warning("Resetting collection %s before ingestion", vectorstore.collection_name)
-            vectorstore.reset_collection()
-        else:
-            source_ids = sorted({_stable_source_id(chunk.metadata) for chunk in chunks})
-            vectorstore.delete_sources(source_ids)
-
-        total = 0
-        for batch, embedding_path in staged_batches:
-            embeddings = np.load(embedding_path, allow_pickle=False)
-            vectorstore.add_documents(batch, embeddings)
-            total += len(batch)
+    total = stage_and_replace(
+        chunks,
+        embedding_manager,
+        vectorstore,
+        batch_size=batch_size,
+        replace=replace,
+    )
 
     logger.info("Ingested %d chunks into %s", total, vectorstore.collection_name)
     return total

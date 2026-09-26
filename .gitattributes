@@ -1,2 +1,6 @@
 *.ipynb filter=lfs diff=lfs merge=lfs -text
 *.txt filter=lfs diff=lfs merge=lfs -text
+
+# PowerShell is a Windows-first launcher. CRLF avoids git's "LF will be
+# replaced" warning and matches how the script is read on disk.
+*.ps1 text eol=crlf

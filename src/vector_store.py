@@ -8,8 +8,9 @@ import logging
 import os
 import tempfile
 import threading
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import chromadb
 import numpy as np
@@ -421,3 +422,91 @@ class VectorStore:
                 close()
             self.client = None
             self.collection = None
+
+
+class SupportsEmbedding(Protocol):
+    """The slice of the embedding manager that ingestion depends on.
+
+    Declared here rather than importing ``EmbeddingManager`` so that ingestion
+    can be driven by any object with the same method, and so tests can supply a
+    fake without constructing a real sentence-transformers model.
+    """
+
+    def generate_embeddings(
+        self,
+        texts: Sequence[str],
+        *,
+        is_query: bool,
+        show_progress_bar: bool,
+    ) -> Any:
+        """Return one embedding per entry in ``texts``."""
+        ...
+
+
+def stage_and_replace(
+    chunks: list[Any],
+    embedding_manager: SupportsEmbedding,
+    vectorstore: VectorStore,
+    *,
+    batch_size: int,
+    replace: Callable[[], None],
+) -> int:
+    """Embed every batch to disk, then swap the stored rows in one step.
+
+    Both the bulk command and the app's upload path need the same guarantee: a
+    failure while generating embeddings must not damage what is already indexed.
+    So every embedding is written to a temporary ``.npy`` file first, and the
+    rows these chunks supersede are only removed once all of them exist. A model
+    or network error part way through therefore leaves the previous version of
+    the source fully intact rather than half-indexed or missing.
+
+    Embeddings are staged on disk instead of held in memory so peak usage does
+    not scale with the number of chunks, which matters for the ~127k chunk
+    index.
+
+    Args:
+        chunks: Chunks to embed and store.
+        embedding_manager: Source of the embeddings.
+        vectorstore: Destination store.
+        batch_size: Chunks per embedding request. Must be positive.
+        replace: Removes or resets the rows that ``chunks`` supersede. Called
+            once, after every embedding has been generated successfully.
+
+    Returns:
+        The number of chunks stored.
+
+    Raises:
+        ValueError: If ``batch_size`` is not positive.
+    """
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
+
+    with tempfile.TemporaryDirectory(prefix="rag-embedding-staging-") as staging_directory:
+        staging_root = Path(staging_directory)
+        staged_batches: list[tuple[list[Any], Path]] = []
+        for start in range(0, len(chunks), batch_size):
+            batch = chunks[start : start + batch_size]
+            logger.info(
+                "Generating embeddings for chunks %d-%d of %d",
+                start + 1,
+                start + len(batch),
+                len(chunks),
+            )
+            embeddings = embedding_manager.generate_embeddings(
+                [chunk.page_content for chunk in batch],
+                is_query=False,
+                show_progress_bar=True,
+            )
+            embedding_path = staging_root / f"batch-{start:012d}.npy"
+            np.save(embedding_path, np.asarray(embeddings, dtype=np.float32), allow_pickle=False)
+            staged_batches.append((batch, embedding_path))
+
+        # The previous rows survive every failure above; only now is it safe to
+        # drop them.
+        replace()
+
+        total = 0
+        for batch, embedding_path in staged_batches:
+            vectorstore.add_documents(batch, np.load(embedding_path, allow_pickle=False))
+            total += len(batch)
+    return total

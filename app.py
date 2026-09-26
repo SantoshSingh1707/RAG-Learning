@@ -12,6 +12,7 @@ import logging
 import re
 import tempfile
 import uuid
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -48,7 +49,7 @@ from src.search import (
     describe_chat_model,
     rag_enhanced,
 )
-from src.vector_store import VectorStore
+from src.vector_store import VectorStore, stage_and_replace
 
 logging.basicConfig(
     level=logging.INFO,
@@ -801,25 +802,13 @@ def _process_upload(
     if len(source_ids) != 1 or "" in source_ids:
         raise ValueError("Uploaded documents must resolve to one stable source.")
     source_id = source_ids.pop()
-    with tempfile.TemporaryDirectory(prefix="rag-upload-embedding-") as staging_directory:
-        staging_root = Path(staging_directory)
-        staged_batches = []
-        for start in range(0, len(chunks), EMBEDDING_BATCH_SIZE):
-            batch = chunks[start : start + EMBEDDING_BATCH_SIZE]
-            embeddings = embedding_manager.generate_embeddings(
-                [chunk.page_content for chunk in batch],
-                is_query=False,
-                show_progress_bar=True,
-            )
-            embedding_path = staging_root / f"batch-{start:012d}.npy"
-            np.save(embedding_path, np.asarray(embeddings, dtype=np.float32), allow_pickle=False)
-            staged_batches.append((batch, embedding_path))
-
-        # Delete the previous version only after all new embeddings exist.
-        vectorstore.delete_sources([source_id])
-        for batch, embedding_path in staged_batches:
-            vectorstore.add_documents(batch, np.load(embedding_path, allow_pickle=False))
-    return len(chunks)
+    return stage_and_replace(
+        chunks,
+        embedding_manager,
+        vectorstore,
+        batch_size=EMBEDDING_BATCH_SIZE,
+        replace=partial(vectorstore.delete_sources, [source_id]),
+    )
 
 
 def _read_source_catalog(vectorstore: VectorStore) -> tuple[list[dict[str, Any]], bool]:
