@@ -28,10 +28,12 @@ management.
 
 [![Runtime architecture diagram](docs/rag-runtime-architecture.png)](https://santoshsingh1707.github.io/RAG-Learning/rag-runtime-architecture.html)
 
-Click the diagram for the interactive version. It has guided views for the ask
-path, the ingest path, and the trust boundaries, plus light and dark themes.
-GitHub strips embedded HTML and scripts from READMEs, so the diagram is served
-from GitHub Pages instead; the image above is a static capture of the same page.
+**[Open the interactive architecture diagram →](https://santoshsingh1707.github.io/RAG-Learning/rag-runtime-architecture.html)**
+
+The interactive version has guided views for the ask path, the ingest path, and
+the trust boundaries, plus light and dark themes. GitHub strips embedded HTML
+and scripts from READMEs, so the diagram is served from GitHub Pages instead;
+the image above is a static capture of the same page.
 
 The diagram source is [`docs/rag-runtime-architecture.architecture.json`](docs/rag-runtime-architecture.architecture.json).
 Edit that file and re-render rather than editing the HTML, which is generated.
