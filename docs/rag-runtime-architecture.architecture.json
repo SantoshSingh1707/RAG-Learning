@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "RAG Runtime Architecture",
+    "output": "docs/rag-runtime-architecture.html",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "ask-path",
+        "label": "Ask path",
+        "focus": ["researcher", "streamlit_ui", "retrieval", "chroma", "embedder", "ollama"],
+        "note": "One question through embedding, cosine retrieval, and local generation."
+      },
+      {
+        "id": "ingest-path",
+        "label": "Ingest path",
+        "focus": ["corpus", "loader", "ingestion", "embedder", "chroma"],
+        "note": "How documents reach the index without leaving the workstation."
+      },
+      {
+        "id": "trust-boundaries",
+        "label": "Trust boundaries",
+        "focus": ["researcher", "credentials", "corpus", "mistral", "hfhub"],
+        "note": "Where untrusted input, secrets, and outbound egress actually cross."
+      }
+    ]
+  },
+  "layout": {
+    "mode": "grid",
+    "origin": [40, 108],
+    "cols": 5,
+    "gapX": 84,
+    "gapY": 60,
+    "cellW": 156,
+    "cellH": 62
+  },
+  "components": [
+    { "id": "researcher", "type": "external", "label": "Researcher", "sublabel": "browser session", "row": 0, "col": 0 },
+    { "id": "streamlit_ui", "type": "frontend", "label": "Streamlit UI", "sublabel": "chat + upload", "tag": "app.py", "row": 0, "col": 1 },
+    { "id": "retrieval", "type": "backend", "label": "Retrieval pipeline", "sublabel": "over-fetch, gate, dedupe", "tag": "src/search.py", "row": 0, "col": 2 },
+    { "id": "ollama", "type": "cloud", "label": "Ollama", "sublabel": "local model daemon", "brand": "ollama", "row": 0, "col": 4 },
+    { "id": "corpus", "type": "database", "label": "Local corpus", "sublabel": "PDF + TXT sources", "row": 1, "col": 0 },
+    { "id": "credentials", "type": "security", "label": "Config + secrets", "sublabel": "provider, model, key", "tag": "src/config.py", "row": 1, "col": 1 },
+    { "id": "chroma", "type": "database", "label": "Chroma index", "sublabel": "cosine HNSW + manifest", "tag": "src/vector_store.py", "row": 1, "col": 2 },
+    { "id": "embedder", "type": "backend", "label": "Embedding model", "sublabel": "MiniLM on CPU or CUDA", "tag": "src/embedding.py", "row": 1, "col": 3 },
+    { "id": "mistral", "type": "external", "label": "Mistral API", "sublabel": "hosted chat", "brand": "mistral-ai", "row": 1, "col": 4 },
+    { "id": "loader", "type": "backend", "label": "Loader + chunker", "sublabel": "PDF, TXT, OCR fallback", "tag": "src/data_loader.py", "row": 2, "col": 1 },
+    { "id": "ingestion", "type": "backend", "label": "Ingestion CLI", "sublabel": "idempotent upsert", "tag": "ingest_data.py", "row": 2, "col": 2 },
+    { "id": "hfhub", "type": "external", "label": "Hugging Face", "sublabel": "pinned model download", "brand": "hugging-face", "row": 2, "col": 4 }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Local workstation — single host, no authentication",
+      "wraps": ["streamlit_ui", "retrieval", "ollama", "corpus", "loader", "chroma", "embedder", "credentials", "ingestion"],
+      "pad": 26
+    },
+    { "kind": "security-group", "label": "Untrusted document content", "wraps": ["corpus"], "pad": 16 },
+    { "kind": "security-group", "label": "Outbound network egress", "wraps": ["mistral", "hfhub"], "pad": 18 }
+  ],
+  "connections": [
+    { "id": "ask", "from": "researcher", "to": "streamlit_ui", "label": "ask a question", "variant": "emphasis" },
+    { "id": "query", "from": "streamlit_ui", "to": "retrieval", "label": "query + top_k", "variant": "emphasis" },
+    { "id": "cosine-search", "from": "retrieval", "to": "chroma", "label": "cosine search", "labelAt": [580, 206] },
+    { "id": "embed-query", "from": "retrieval", "to": "embedder", "label": "embed query" },
+    { "id": "local-chat", "from": "retrieval", "to": "ollama", "label": "chat completion", "variant": "emphasis" },
+    { "id": "hosted-chat", "from": "retrieval", "to": "mistral", "label": "retrieved text leaves the host", "variant": "security" },
+    { "id": "settings", "from": "credentials", "to": "retrieval", "label": ".env provider + key", "variant": "security" },
+    { "id": "read-corpus", "from": "corpus", "to": "loader", "label": "PDF / TXT" },
+    { "id": "chunks", "from": "loader", "to": "ingestion", "label": "pages + chunks" },
+    { "id": "embed-passages", "from": "ingestion", "to": "embedder", "label": "embed passages" },
+    { "id": "upsert", "from": "ingestion", "to": "chroma", "label": "upsert by source", "variant": "dashed" },
+    { "id": "model-download", "from": "embedder", "to": "hfhub", "label": "download pinned revision", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Runtime shape",
+      "items": [
+        "Model, index, retriever, and chat client are built once per process",
+        "No authentication, authorization, rate limiting, or tenant isolation",
+        "The index directory is gitignored and regenerable from the source files"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Read path",
+      "items": [
+        "The query is embedded with a query prefix and searched by cosine distance",
+        "Candidates are over-fetched 4x, gated, deduplicated, then cut to top_k",
+        "An empty index returns no context instead of calling the model"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Untrusted content",
+      "items": [
+        "Uploads are size-limited, written to a temp dir, and filename-sanitized",
+        "Retrieved text is a reference block; the prompt forbids obeying it",
+        "With Mistral selected, retrieved text is sent to a third-party API"
+      ]
+    }
+  ]
+}
