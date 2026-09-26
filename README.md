@@ -97,7 +97,7 @@ current directory. Defaults can be overridden with environment variables in
 | `MISTRAL_MAX_RETRIES` | `2` | Provider retry count |
 | `RAG_LLM_PROVIDER` | `mistral` | `ollama` for a local model, `mistral` for the hosted API |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama daemon address |
-| `OLLAMA_MODEL` | `qwen2.5-coder:latest` | Local model tag |
+| `OLLAMA_MODEL` | `llama3.1:8b` | Local model tag |
 | `OLLAMA_NUM_CTX` | `4096` | Context window in tokens |
 | `OLLAMA_NUM_PREDICT` | `512` | Maximum reply length in tokens |
 | `OLLAMA_KEEP_ALIVE` | `30m` | How long Ollama keeps the model resident |
@@ -112,6 +112,34 @@ current directory. Defaults can be overridden with environment variables in
 | `RAG_MIN_SCORE` | `0.35` | Minimum cosine similarity |
 | `RAG_MAX_HISTORY_MESSAGES` | `8` | Recent turns sent to the LLM |
 | `RAG_MAX_UPLOAD_BYTES` | `209715200` | Upload size limit |
+| `RAG_EMBEDDING_BATCH_SIZE` | `128` | Chunks per embedding call |
+| `RAG_OCR_DPI` | `150` | Raster resolution for OCR fallback |
+
+### Environment variables override `.env`
+
+`load_dotenv(override=False)` runs, so a variable already set in your shell
+wins over the `.env` file. That is what lets CI and containers configure the app
+without editing the file, but it also means an `.env` edit can appear to do
+nothing.
+
+The app therefore reports every setting a shell is overriding, both in the log
+and as a sidebar warning:
+
+```text
+Environment variable OLLAMA_MODEL is set in this process and overrides the
+value in .env. The .env value is being ignored.
+```
+
+This applies to non-credential settings too. A shadowed `OLLAMA_MODEL` is just
+as confusing as a shadowed API key, so both are surfaced. Clear the variable for
+the current session with:
+
+```powershell
+Remove-Item Env:OLLAMA_MODEL
+```
+
+Note that `load_rag_components` is cached, so restart Streamlit after changing
+`.env` or clearing a shell variable.
 
 If a private Hugging Face model is used, set the token before starting the
 application. The default model revision is pinned in `src/config.py`; override
