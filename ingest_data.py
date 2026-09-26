@@ -82,6 +82,9 @@ def _embed_and_store(
         logger.warning("No chunks generated")
         return 0
 
+    # A store failure after the swap leaves these sources deleted or partly
+    # written. Re-running repairs it, because chunk IDs are deterministic and
+    # the same sources are replaced again. See stage_and_replace.
     if rebuild:
         logger.warning("Resetting collection %s before ingestion", vectorstore.collection_name)
         replace = vectorstore.reset_collection

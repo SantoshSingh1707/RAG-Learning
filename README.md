@@ -147,6 +147,8 @@ Checking for environment variables that override .env...
 Effective configuration:
   provider    ollama
   model       llama3.1:8b
+  chunking    size=1000 overlap=200
+  top_k       5
 ```
 
 The names it clears come from `src.config`, so the launcher cannot drift from

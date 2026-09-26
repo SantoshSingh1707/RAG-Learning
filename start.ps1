@@ -22,10 +22,21 @@
 
 .EXAMPLE
     .\start.ps1 -Port 8600
+
+.EXAMPLE
+    .\start.ps1 -Verify
 #>
 [CmdletBinding()]
 param(
-    [int]$Port = 8501
+    [int]$Port = 8501,
+
+    # -Verify makes this a preflight check instead of a server launch: it starts
+    # Streamlit, waits for the health endpoint to answer, reports the outcome and
+    # shuts the process down again. It confirms the environment is sane and the
+    # app boots, which is what usually breaks. It cannot confirm the running app
+    # loaded the reported model, because the model is not exposed over HTTP --
+    # for that, read the provider panel in the sidebar.
+    [switch]$Verify
 )
 
 $ErrorActionPreference = 'Stop'
@@ -138,4 +149,55 @@ print('  top_k      ', DEFAULT_TOP_K)
 Write-Host ''
 Write-Host "Starting Streamlit on http://localhost:$Port" -ForegroundColor Cyan
 Write-Host ''
-& $python -m streamlit run app.py --server.port $Port
+
+if (-not $Verify) {
+    & $python -m streamlit run app.py --server.port $Port
+    return
+}
+
+# Preflight mode. Start detached so the health endpoint can be polled, report
+# what happened either way, and always clean the process up.
+$server = Start-Process -FilePath $python `
+    -ArgumentList '-m', 'streamlit', 'run', 'app.py', '--server.port', $Port `
+    -WorkingDirectory $root -PassThru -WindowStyle Hidden
+
+$healthUri = "http://localhost:$Port/_stcore/health"
+$deadline = (Get-Date).AddSeconds(120)
+$healthy = $false
+try {
+    while ((Get-Date) -lt $deadline) {
+        if ($server.HasExited) { break }
+        try {
+            $response = Invoke-WebRequest -Uri $healthUri -UseBasicParsing -TimeoutSec 3
+            if ($response.StatusCode -eq 200) {
+                $healthy = $true
+                break
+            }
+        }
+        catch {
+            Start-Sleep -Seconds 2
+        }
+    }
+}
+finally {
+    if (-not $server.HasExited) {
+        # Stop-Process targets the launcher; Streamlit runs as a child.
+        Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+        Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -like '*streamlit*app.py*' } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+if ($healthy) {
+    Write-Host "Preflight passed: the app booted and answered $healthUri." -ForegroundColor Green
+    exit 0
+}
+
+if ($server.HasExited) {
+    Write-Host 'Preflight failed: Streamlit exited during startup. Run without -Verify to see why.' -ForegroundColor Red
+}
+else {
+    Write-Host "Preflight failed: no response from $healthUri within 120s." -ForegroundColor Red
+}
+exit 1

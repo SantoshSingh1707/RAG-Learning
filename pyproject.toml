@@ -44,22 +44,31 @@ where = ["."]
 include = ["src*"]
 
 [tool.uv.sources]
-# torch and torchvision resolve from PyPI. The previous explicit pin to the
-# cu124 index forced every environment, including CPU-only CI runners, to pull
-# ~2.5 GB of CUDA wheels that CPU-only runners cannot use.
+# torch and torchvision resolve from PyPI rather than from the cu124 index.
+# What that changes is platform-specific, so do not generalise from one
+# platform to another. Both were measured on this repository's CI and on a
+# Windows dev machine.
 #
-# The cost of dropping it: the default PyPI wheel is a CPU-only build. On
-# Windows this resolved to torch 2.14.0+cpu with torch.version.cuda of None,
-# so embedding runs on the CPU. Measured impact is small -- 384-dimension
-# embeddings at ~420 chunks/sec, about 2 seconds per 1000 chunks and 14 ms
-# query latency -- so a full re-index of ~127k chunks takes minutes rather
-# than seconds. Note that Ollama ships its own CUDA runtime, so the chat model
-# is unaffected and still uses the GPU.
+#   Windows / macOS: the default PyPI wheel is a CPU-only build. On Windows
+#     this resolved to torch 2.14.0+cpu with torch.version.cuda of None, so
+#     embedding runs on the CPU. The cost is small -- 384-dimension embeddings
+#     at ~420 chunks/sec, about 2 seconds per 1000 chunks and 14 ms query
+#     latency -- so a full re-index of ~127k chunks takes minutes rather than
+#     seconds. Ollama ships its own CUDA runtime, so the chat model is
+#     unaffected and still uses the GPU.
 #
-# To get GPU embeddings back, pin an explicit CUDA index here, scoped with a
-# sys_platform marker so Linux CI keeps resolving the small PyPI wheel. That
-# is not configured today; torch and torchvision deliberately have no [tool.uv.sources]
-# entry, so both resolve from PyPI on every platform.
+#   Linux: the PyPI wheel does carry CUDA. uv.lock resolves nvidia-cudnn-cu13,
+#     nvidia-nccl-cu13, cuda-toolkit, cuda-bindings and triton alongside torch,
+#     all gated on sys_platform == 'linux'. A CI run downloads about 3.2 GB
+#     across 48 wheels, of which torch is 529 MB and triton 237 MB. So the
+#     cu124 index was not what made Linux heavy, and restoring it would not
+#     make Linux light.
+#
+# To get GPU embeddings back on Windows or macOS, pin an explicit CUDA index
+# here. Scoping it with a sys_platform marker will not shrink Linux CI, which
+# already resolves CUDA wheels from PyPI. This is not configured today: torch
+# and torchvision deliberately have no [tool.uv.sources] entry, so both resolve
+# from PyPI on every platform.
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

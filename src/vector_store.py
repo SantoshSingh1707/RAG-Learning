@@ -451,14 +451,24 @@ def stage_and_replace(
     batch_size: int,
     replace: Callable[[], None],
 ) -> int:
-    """Embed every batch to disk, then swap the stored rows in one step.
+    """Embed every batch to disk, then swap the stored rows in.
 
-    Both the bulk command and the app's upload path need the same guarantee: a
-    failure while generating embeddings must not damage what is already indexed.
-    So every embedding is written to a temporary ``.npy`` file first, and the
-    rows these chunks supersede are only removed once all of them exist. A model
-    or network error part way through therefore leaves the previous version of
-    the source fully intact rather than half-indexed or missing.
+    Both the bulk command and the app's upload path need the same property: a
+    failure while *generating* embeddings must not damage what is already
+    indexed. So every embedding is written to a temporary ``.npy`` file first,
+    and the rows these chunks supersede are only removed once all of them
+    exist. A model or network error part way through therefore leaves the
+    previous version of the source fully intact rather than half-indexed or
+    missing. That is the case worth engineering for, because the embedding
+    model is the slow, remote-capable, failure-prone step.
+
+    What this does *not* make atomic is the write itself. ``replace`` runs
+    before the first ``add_documents`` call, so a store failure after that
+    point (disk full, Chroma write error) leaves the source deleted or partly
+    written. Closing that window needs a transactional replace in the store,
+    which ChromaDB does not expose; the next run repairs the damage by
+    replacing the same source again, and the deterministic chunk IDs mean the
+    retry is idempotent. Do not read this function as a general rollback.
 
     Embeddings are staged on disk instead of held in memory so peak usage does
     not scale with the number of chunks, which matters for the ~127k chunk
