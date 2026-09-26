@@ -160,6 +160,7 @@ def build_app(
     rag_result: dict[str, Any] | None = None,
     rag_error: BaseException | None = None,
     shadowed: tuple[str, ...] = (),
+    provider: str = "ollama",
     load_error: bool = False,
 ) -> Harness:
     """Patch every external collaborator, run the app once, and return both."""
@@ -170,6 +171,11 @@ def build_app(
     llm = FakeLlm()
     retriever = SimpleNamespace(name="fake-retriever")
     queries: list[dict[str, Any]] = []
+
+    # The provider is pinned rather than inherited. src/config defaults to
+    # mistral, and a local .env may say ollama, so a test that does not pin it
+    # asserts different things in CI than on a developer's machine.
+    monkeypatch.setattr(config_module, "LLM_PROVIDER", provider)
 
     monkeypatch.setattr(vector_store_module, "VectorStore", lambda *a, **k: vectorstore)
     monkeypatch.setattr(
@@ -456,8 +462,9 @@ def test_unexpected_error_does_not_leak_internals(monkeypatch: pytest.MonkeyPatc
 def test_auth_error_names_the_credential_of_the_active_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(config_module, "LLM_PROVIDER", "mistral")
-    harness = build_app(monkeypatch, rag_error=search_module.ProviderAuthError("nope"))
+    harness = build_app(
+        monkeypatch, provider="mistral", rag_error=search_module.ProviderAuthError("nope")
+    )
     ask(harness, "Anything?")
     assert "MISTRAL_API_KEY" in surfaced_texts(harness)
 
@@ -466,8 +473,9 @@ def test_auth_error_under_a_local_provider_points_at_the_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Regression: the message used to blame MISTRAL_API_KEY even under Ollama."""
-    monkeypatch.setattr(config_module, "LLM_PROVIDER", "ollama")
-    harness = build_app(monkeypatch, rag_error=search_module.ProviderAuthError("nope"))
+    harness = build_app(
+        monkeypatch, provider="ollama", rag_error=search_module.ProviderAuthError("nope")
+    )
     ask(harness, "Anything?")
     surfaced = surfaced_texts(harness)
     assert "MISTRAL_API_KEY" not in surfaced
@@ -582,13 +590,41 @@ def test_process_upload_returns_zero_for_an_empty_document(harness: Harness) -> 
     [
         ("report.pdf", "report.pdf"),
         ("../../etc/passwd", "passwd"),
-        ("..\\..\\windows\\system32", "system32"),
         ("/absolute/path/file.txt", "file.txt"),
         ("", "uploaded-document"),
     ],
 )
 def test_safe_display_name_strips_directories(raw: str, expected: str) -> None:
     assert app_module._safe_display_name(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "../../etc/passwd",
+        "..\\..\\windows\\system32",
+        "/absolute/path/file.txt",
+        "sub/dir/name.pdf",
+        "..\\..\\etc\\shadow",
+        "///",
+    ],
+)
+def test_safe_display_name_never_leaks_a_path_component(raw: str) -> None:
+    """The invariant, asserted without assuming an operating system.
+
+    pathlib treats a backslash as a separator on Windows and as an ordinary
+    filename character elsewhere, so the exact output is platform-dependent.
+    What must hold on every platform is that the result cannot become a
+    multi-component path, since it is used as a path segment under a
+    temporary directory. A literal ".." inside a longer name is harmless
+    without a separator, so it is not asserted here; a name that *is* ".."
+    is.
+    """
+    name = app_module._safe_display_name(raw)
+    assert "/" not in name
+    assert "\\" not in name
+    assert name not in {".", ".."}
+    assert name.strip()
 
 
 @pytest.mark.parametrize(
